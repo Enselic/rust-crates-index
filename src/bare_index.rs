@@ -1,4 +1,7 @@
+use crate::dedupe::DedupeContext;
+use crate::dirs::url_to_local_dir;
 use crate::{error::CratesIterError, path_max_byte_len, Crate, Error, IndexConfig};
+use git2::Repository;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
@@ -31,7 +34,6 @@ fn find_cargo_config() -> Option<PathBuf> {
 ///
 /// Uses a "bare" git index that fetches files directly from the repo instead of local checkout.
 /// Uses Cargo's cache.
-#[cfg(feature = "git-index")]
 pub struct Index {
     path: PathBuf,
     url: String,
@@ -41,10 +43,7 @@ pub struct Index {
     head_str: String,
 }
 
-#[cfg(feature = "git-index")]
 impl Index {
-    use crate::dedupe::DedupeContext;
-
     #[doc(hidden)]
     #[deprecated(note = "use new_cargo_default()")]
     pub fn new<P: Into<PathBuf>>(path: P) -> Self {
@@ -79,7 +78,7 @@ impl Index {
     ///
     /// It can be used to access custom registries.
     pub fn from_url(url: &str) -> Result<Self, Error> {
-        let (dir_name, canonical_url) = crate::dirs::url_to_local_dir(url)?;
+        let (dir_name, canonical_url) = url_to_local_dir(url)?;
         let mut path = home::cargo_home()?;
 
         path.push("registry");
@@ -110,7 +109,6 @@ impl Index {
     }
 }
 
-#[cfg(feature = "git-index")]
 impl Index {
     fn from_path_and_url(path: PathBuf, url: String) -> Result<Self, Error> {
         let exists = git2::Repository::discover(&path)
@@ -284,7 +282,7 @@ impl Index {
         tree_oids.into_par_iter()
             .with_min_len(64)
             .map_init(
-                move || (git2::Repository::open_bare(path), DedupeContext::new()),
+                move || (Repository::open_bare(path), DedupeContext::new()),
                 |(repo, ctx), oid| {
                     let repo = match repo.as_ref() {
                         Ok(repo) => repo,
@@ -341,7 +339,7 @@ impl Index {
         serde_json::from_slice(blob.content()).map_err(Error::Json)
     }
 
-    fn find_valid_repo_head(repo: &git2::Repository, path: &Path) -> Result<git2::Oid, Error> {
+    fn find_valid_repo_head(repo: &Repository, path: &Path) -> Result<git2::Oid, Error> {
         repo.refname_to_id("FETCH_HEAD")
             .or_else(|_| repo.refname_to_id("HEAD"))
             .and_then(|head| {
@@ -360,17 +358,14 @@ impl Index {
 /// Iterator over all crates in the index, but returns opaque objects that can be parsed separately.
 ///
 /// See [`CrateRef::parse`].
-#[cfg(feature = "git-index")]
 pub(crate) struct CratesRefs<'a> {
     stack: Vec<git2::Object<'a>>,
     repo: &'a git2::Repository,
 }
 
 /// Opaque representation of a crate in the index. See [`CrateRef::parse`].
-#[cfg(feature = "git-index")]
 pub(crate) struct CrateRef<'a>(git2::Object<'a>);
 
-#[cfg(feature = "git-index")]
 impl CrateRef<'_> {
     #[inline]
     /// Parse a crate from [`Index::crates_blobs`] iterator
@@ -385,7 +380,6 @@ impl CrateRef<'_> {
     }
 }
 
-#[cfg(feature = "git-index")]
 impl<'a> Iterator for CratesRefs<'a> {
     type Item = CrateRef<'a>;
 
@@ -405,7 +399,6 @@ impl<'a> Iterator for CratesRefs<'a> {
     }
 }
 
-#[cfg(feature = "git-index")]
 impl fmt::Debug for CrateRef<'_> {
     #[cold]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -421,13 +414,11 @@ enum MaybeOwned<'a, T> {
 }
 
 /// Iterator over all crates in the index. Skips crates that failed to parse.
-#[cfg(feature = "git-index")]
 pub struct Crates<'a> {
     blobs: CratesRefs<'a>,
     dedupe: MaybeOwned<'a, DedupeContext>,
 }
 
-#[cfg(feature = "git-index")]
 impl<'a> Iterator for Crates<'a> {
     type Item = Crate;
 
@@ -446,7 +437,6 @@ impl<'a> Iterator for Crates<'a> {
 }
 
 #[cfg(test)]
-#[cfg(feature = "git-index")]
 mod test {
     #[test]
     fn bare_iterator() {
