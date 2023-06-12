@@ -58,6 +58,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
+#[cfg(feature = "git-index")]
 mod bare_index;
 mod dedupe;
 mod dirs;
@@ -65,7 +66,9 @@ mod dirs;
 pub mod error;
 mod sparse_index;
 
+#[cfg(feature = "git-index")]
 pub use bare_index::Crates;
+#[cfg(feature = "git-index")]
 pub use bare_index::Index;
 
 #[doc(hidden)]
